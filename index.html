@@ -7,6 +7,24 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Lab 9</title>
 
+  <!-- Replace YOUR_TRACKJS_TOKEN with the token from your TrackJS trial dashboard. -->
+  <script src="https://cdn.trackjs.com/agent/v3/latest/t.js"></script>
+  <script>
+    window.TrackJS && TrackJS.install({ 
+      token: "9955569dabce40348f1413f05f9ce22d",
+      application: "lab-9"
+      // for more configuration options, see https://docs.trackjs.com
+    });
+  </script><script src="https:///agent/v3/latest/t.js"></script>
+  <script>
+    window.TrackJS && TrackJS.install({ 
+      token: "9955569dabce40348f1413f05f9ce22d",
+      application: "lab-9",
+      forwardingDomain: ""
+      // for more configuration options, see https://docs.trackjs.com
+    });
+  </script>
+  
   <style>
     button {
       margin: 3px;
@@ -65,6 +83,7 @@
         <button id="calculate">Calculate</button>
         <br />
         <output></output>
+        <p id="calc-status" hidden aria-live="polite"></p>
       </fieldset>
     </form>
 
@@ -88,20 +107,229 @@
   </main>
 
   <script>
+    // Global errors happen outside try/catch. window.onerror lets us observe them
+    // and transmit details elsewhere (console, fetch, TrackJS, etc.).
+    window.onerror = function (message, source, lineno, colno, error) {
+      console.log('Global error caught by window.onerror:', {
+        message: message,
+        source: source,
+        line: lineno,
+        column: colno,
+        name: error ? error.name : 'Error',
+        stack: error ? error.stack : null
+      });
+
+      // ajaxref-style example: send the report to a server endpoint.
+      // fetch('/api/log-client-error', {
+      //   method: 'POST',
+      //   headers: { 'Content-Type': 'application/json' },
+      //   body: JSON.stringify({ message, source, lineno, colno })
+      // });
+
+      return false;
+    };
+
+    class CalculatorError extends Error {
+      constructor(message) {
+        super(message);
+        this.name = this.constructor.name;
+      }
+    }
+
+    class ValidationError extends CalculatorError {
+      constructor(field) {
+        super(`Invalid number in "${field}".`);
+        this.field = field;
+      }
+    }
+
+    class DivideByZeroError extends CalculatorError {
+      constructor() {
+        super('Cannot divide by zero.');
+      }
+    }
+
+    class InvalidOperatorError extends CalculatorError {
+      constructor(operator) {
+        super(`Unsupported operator: ${operator}`);
+        this.operator = operator;
+      }
+    }
+
+    class SettingsError extends CalculatorError {
+      constructor(message, cause) {
+        super(message);
+        this.cause = cause;
+      }
+    }
+
     let form = document.querySelector('form');
+    let output = document.querySelector('output');
+    let statusBanner = document.querySelector('#calc-status');
+
+    function calculateResult(firstNum, secondNum, operator) {
+      if (Number.isNaN(firstNum)) {
+        throw new ValidationError('first-num');
+      }
+      if (Number.isNaN(secondNum)) {
+        throw new ValidationError('second-num');
+      }
+
+      switch (operator) {
+        case '+':
+          return firstNum + secondNum;
+        case '-':
+          return firstNum - secondNum;
+        case '*':
+          return firstNum * secondNum;
+        case '/':
+          if (secondNum === 0) {
+            throw new DivideByZeroError();
+          }
+          return firstNum / secondNum;
+        default:
+          throw new InvalidOperatorError(operator);
+      }
+    }
+
+    function readCalculatorSettings() {
+      let savedSettings = sessionStorage.getItem('calc-settings');
+
+      if (savedSettings === null) {
+        throw new SettingsError('No saved calculator settings found.', null);
+      }
+
+      try {
+        return JSON.parse(savedSettings);
+      } catch (err) {
+        if (err instanceof SyntaxError) {
+          throw new SettingsError('Saved calculator settings are corrupted.', err);
+        }
+        throw err;
+      }
+    }
+
     form.addEventListener('submit', e => {
       e.preventDefault();
-      let output = document.querySelector('output');
-      let firstNum = document.querySelector('#first-num').value;
-      let secondNum = document.querySelector('#second-num').value;
-      let operator = document.querySelector('#operator').value;
-      output.innerHTML = eval(`${firstNum} ${operator} ${secondNum}`);
+
+      try {
+        let firstNum = parseFloat(document.querySelector('#first-num').value);
+        let secondNum = parseFloat(document.querySelector('#second-num').value);
+        let operator = document.querySelector('#operator').value;
+        let result = calculateResult(firstNum, secondNum, operator);
+
+        output.textContent = result;
+        output.style.color = '';
+        if (statusBanner) {
+          statusBanner.textContent = `Last result: ${result}`;
+        }
+      } catch (error) {
+        if (error instanceof ValidationError) {
+          console.error('Validation error:', error.field, error);
+          output.textContent = error.message;
+          document.querySelector(`#${error.field}`).focus();
+        } else if (error instanceof DivideByZeroError) {
+          console.error('Divide by zero:', error);
+          output.textContent = error.message;
+        } else if (error instanceof InvalidOperatorError) {
+          console.error('Bad operator:', error.operator, error);
+          output.textContent = error.message;
+        } else if (error instanceof CalculatorError) {
+          console.error('Calculator error:', error);
+          output.textContent = error.message;
+        } else {
+          throw error;
+        }
+
+        output.style.color = 'crimson';
+        if (statusBanner) {
+          statusBanner.textContent = 'Calculator needs attention.';
+        }
+      } finally {
+        console.log('Calculator attempt finished.');
+      }
     });
 
     let errorBtns = Array.from(document.querySelectorAll('#error-btns > button'));
 
-    // Start your code here
-    // You may move this JS to another file if you wish
+    let demoUser = {
+      name: 'Ada Lovelace',
+      role: 'developer',
+      skills: ['JavaScript', 'HTML', 'CSS'],
+      active: true
+    };
+
+    let demoTable = [
+      { item: 'Keyboard', price: 79.99, inStock: true },
+      { item: 'Mouse', price: 29.99, inStock: false },
+      { item: 'Monitor', price: 249.99, inStock: true }
+    ];
+
+    let TIMER_LABEL = 'lab9-demo-timer';
+
+    errorBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        switch (btn.textContent) {
+          case 'Console Log':
+            console.log('Console Log Demo:', demoUser, demoTable);
+            break;
+          case 'Console Error':
+            console.error('Console Error Demo: failed to load resource', { status: 404 });
+            break;
+          case 'Console Count':
+            console.count('Console Count Demo');
+            break;
+          case 'Console Warn':
+            console.warn('Console Warn Demo: this feature is deprecated');
+            break;
+          case 'Console Assert':
+            console.assert(demoUser.active === false, 'Console Assert Demo: user should be inactive');
+            break;
+          case 'Console Clear':
+            console.clear();
+            break;
+          case 'Console Dir':
+            console.dir(demoUser);
+            break;
+          case 'Console dirxml':
+            console.dirxml(document.querySelector('#error-btns'));
+            break;
+          case 'Console Group Start':
+            console.group('Console Group Demo');
+            console.log('Inside group: user info', demoUser.name);
+            console.log('Inside group: table rows', demoTable.length);
+            break;
+          case 'Console Group End':
+            console.groupEnd();
+            break;
+          case 'Console Table':
+            console.table(demoTable);
+            break;
+          case 'Start Timer':
+            console.time(TIMER_LABEL);
+            break;
+          case 'End Timer':
+            console.timeEnd(TIMER_LABEL);
+            break;
+          case 'Console Trace':
+            (function traceDemo() {
+              console.trace('Console Trace Demo: call stack');
+            })();
+            break;
+          case 'Trigger a Global Error':
+            triggerGlobalError();
+            break;
+        }
+      });
+    });
+
+    function triggerGlobalError() {
+      sessionStorage.setItem('calc-settings', '{ "theme": "dark", "precision": ');
+
+      let settings = readCalculatorSettings();
+
+      document.querySelector('#calc-status').textContent = `Loaded theme: ${settings.theme}`;
+    }
   </script>
 </body>
 
